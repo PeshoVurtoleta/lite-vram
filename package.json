@@ -1,0 +1,61 @@
+{
+  "name": "@zakkster/lite-vram",
+  "author": "Zahary Shinikchiev <shinikchiev@yahoo.com>",
+  "version": "1.0.0",
+  "description": "Enterprise-grade VRAM management for HTML5 games. Features hardware tier detection, priority-based hysteresis eviction, and safe scene streaming.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.d.ts",
+    "llms.txt",
+    "README.md"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/PeshoVurtoleta/lite-vram#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PeshoVurtoleta/lite-vram.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PeshoVurtoleta/lite-vram/issues",
+    "email": "shinikchiev@yahoo.com"
+  },
+  "keywords": [
+    "vram",
+    "memory-management",
+    "device-tiering",
+    "scene-streaming",
+    "hysteresis",
+    "html5",
+    "webgl",
+    "canvas",
+    "assets",
+    "lru",
+    "zero-gc",
+    "ios-safari",
+    "performance",
+    "lite-tools"
+  ],
+  "dependencies": {
+    "@zakkster/lite-sprite-cache": "^1.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.1",
+    "vitest": "^3.0.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "bundle-check": "npx esbuild index.js --bundle --format=esm --outfile=test-bundle.js",
+    "prepublishOnly": "npm run test && npm run bundle-check"
+  }
+}
