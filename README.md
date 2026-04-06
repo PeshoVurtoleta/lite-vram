@@ -12,7 +12,7 @@ Production VRAM management for HTML5 game engines. Device-aware budgets, categor
 
 **The VRAM system that PixiJS, Phaser, Construct, and Cocos don't have.**
 
-**[→ Try the Live Diagnostic Dashboard](./examples/vram-diagnostics-dashboard/)**
+**[→ Try the Live Diagnostic Dashboard](https://inquisitive-puppy-ca0290.netlify.app/)**
 
 ## Why lite-vram?
 
@@ -340,7 +340,7 @@ if (result.stopReason !== 'complete') {
 
 The Diagnostic Dashboard is **completely free**. You don't need to install anything or run a local server.
 
-👉 **[Run the Live VRAM Diagnostic Tool (CodePen Debug View)](https://cdpn.io/pen/debug/wBzxWPM/1b39093bbc824213998aacdf107736d5)**
+👉 **[Run the Live VRAM Diagnostic Tool (Netlify)](https://inquisitive-puppy-ca0290.netlify.app)**
 
 It takes 60 seconds to run a test:
 1. Open the link above on your target device (especially older phones or iPads).
