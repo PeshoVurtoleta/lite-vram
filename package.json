@@ -1,7 +1,7 @@
 {
   "name": "@zakkster/lite-vram",
   "author": "Zahary Shinikchiev <shinikchiev@yahoo.com>",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Enterprise-grade VRAM management for HTML5 games. Features hardware tier detection, priority-based hysteresis eviction, and safe scene streaming.",
   "type": "module",
   "sideEffects": false,
@@ -15,10 +15,13 @@
     }
   },
   "files": [
-    "*.js",
-    "*.d.ts",
-    "llms.txt",
-    "README.md"
+    "index.js",
+    "index.d.ts",
+    "src/**/*.js",
+    "src/**/*.d.ts",
+    "presets.json",
+    "README.md",
+    "llms.txt"
   ],
   "license": "MIT",
   "homepage": "https://github.com/PeshoVurtoleta/lite-vram#readme",
@@ -55,6 +58,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "pack": "npm pack --dry-run",
     "bundle-check": "npx esbuild index.js --bundle --format=esm --outfile=test-bundle.js",
     "prepublishOnly": "npm run test && npm run bundle-check"
   }
