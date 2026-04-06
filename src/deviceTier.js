@@ -33,6 +33,7 @@ const TIER_NAMES = {
  * @property {boolean} signals.isIOS
  * @property {boolean} signals.isIPad
  * @property {boolean} signals.isMobile
+ * @property {number}  signals.iOSVersion
  * @property {number}  signals.memory
  * @property {boolean} signals.memoryReal
  * @property {number}  signals.cores
@@ -68,6 +69,16 @@ export function detectDeviceTier() {
     const isIPad = /iPad/.test(ua) || isIPadOS13Plus || isIPadLegacy;
     const isMobile = isIOS || /Mobi|Android/.test(ua);
 
+    // ── iOS Version Detection ───────────────────────────
+    // Parses major version from "CPU iPhone OS 18_7 like Mac OS X"
+    // or "CPU OS 17_4 like Mac OS X" (iPad).
+    // Returns 0 if not iOS or unparseable.
+    let iOSVersion = 0;
+    if (isIOS) {
+        const match = ua.match(/(?:CPU (?:iPhone )?OS |OS )(\d+)[_\d]* like Mac OS X/);
+        if (match) iOSVersion = parseInt(match[1], 10);
+    }
+
     // ── RAM Detection ───────────────────────────────────
     const memoryReal = typeof navigator.deviceMemory === 'number';
     const memory = memoryReal
@@ -85,10 +96,29 @@ export function detectDeviceTier() {
     let tier;
     let reason;
 
-    // Rule 1: iOS devices with tight RAM — Safari process limits leave ≤100MB for textures
-    if (isIOS && memory <= 3) {
+    // Rule 1: iOS tier detection using OS version as a device-generation proxy.
+    // Safari NEVER exposes navigator.deviceMemory, so RAM is always unknown.
+    // iOS version is the best available signal because Apple drops old devices
+    // from new iOS releases on a predictable schedule:
+    //   iOS ≤ 15: min device iPhone 6s (2GB) — includes iPhone 7 (2GB), SE2 (3GB)
+    //   iOS 16:   min device iPhone 8 (2-3GB) — but also includes iPhone 14 (6GB)
+    //   iOS ≥ 17: min device iPhone XS (4GB) — all modern, 4-6GB
+    if (isIOS && !memoryReal && iOSVersion > 0 && iOSVersion >= 17) {
+        tier = DeviceTier.HIGH;
+        reason = `iOS ${iOSVersion} device (min iPhone XS, 4GB+)`;
+    }
+    else if (isIOS && !memoryReal && iOSVersion >= 16) {
+        tier = DeviceTier.MID;
+        reason = `iOS ${iOSVersion} device (mixed 2-6GB, conservative MID)`;
+    }
+    else if (isIOS && !memoryReal) {
         tier = DeviceTier.LOW;
-        reason = `iOS device with ≤3GB RAM (${memory}GB${memoryReal ? '' : ' estimated'})`;
+        reason = `iOS ${iOSVersion || '?'} device (likely ≤3GB RAM)`;
+    }
+    // Rule 1b: iOS with actual RAM reported (future-proof — Chrome on iOS, or API change)
+    else if (isIOS && memoryReal && memory <= 3) {
+        tier = DeviceTier.LOW;
+        reason = `iOS device with confirmed ≤3GB RAM (${memory}GB)`;
     }
     // Rule 2: Budget Android with ≤2GB RAM — Chrome reports via deviceMemory
     // (On Firefox/Safari where deviceMemory is unavailable, falls to rule 5 at 4GB estimate)
@@ -128,7 +158,7 @@ export function detectDeviceTier() {
     return {
         tier,
         tierName: TIER_NAMES[tier],
-        signals: { isIOS, isIPad, isMobile, memory, memoryReal, cores, gpu, gpuIsLow, reason }
+        signals: { isIOS, isIPad, isMobile, iOSVersion, memory, memoryReal, cores, gpu, gpuIsLow, reason }
     };
 }
 

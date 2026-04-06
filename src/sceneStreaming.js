@@ -132,13 +132,12 @@ export function cleanupPartialLoad(cache, scene, result, registry = null) {
 
     for (const asset of scene.assets) {
         if (registry) {
-            // (Use .unregister() or .remove(), whichever your class uses)
             registry.unregister(asset.id);
         }
 
-        // 2. ONLY ask the cache to dispose of assets that successfully made it to VRAM
+        // Only dispose assets that successfully made it to VRAM
         if (!failedSet.has(asset.id)) {
-            cache.dispose(asset.id); // or cache.unload(asset.id)
+            cache.dispose(asset.id);
         }
     }
 }

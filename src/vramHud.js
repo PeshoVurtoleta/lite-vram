@@ -46,7 +46,6 @@ export class VramHUD {
         s.padding      = '5px 8px';
         s.background   = 'rgba(0, 0, 0, 0.75)';
         s.color        = '#0f0';
-        s.background   = 'transparent';
         s.borderRadius = '3px';
         s.pointerEvents = 'none';
         s.whiteSpace   = 'pre';

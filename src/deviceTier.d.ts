@@ -8,6 +8,8 @@ export interface TierSignals {
     isIOS: boolean;
     isIPad: boolean;
     isMobile: boolean;
+    /** Major iOS version parsed from UA (0 if not iOS). */
+    iOSVersion: number;
     /** RAM in GB. From `navigator.deviceMemory` or fallback estimate. */
     memory: number;
     /** True if `navigator.deviceMemory` was available (Chrome/Edge only). */
