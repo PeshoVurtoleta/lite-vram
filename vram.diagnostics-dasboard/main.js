@@ -182,24 +182,24 @@ function createVisualCell(id, category) {
     const cell = document.createElement('div');
     cell.className = `tex-cell cat-${category}`;
 
-    const cvs = document.createElement('canvas');
-    cvs.width = 8;
-    cvs.height = 8;
-    const ctx = cvs.getContext('2d');
     const hues = {temp: 210, fx: 38, bg: 155, char: 217, ui: 263};
     const h = hues[category] || 0;
-    const seed = assetCounter * 137.5;
 
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
-        const v = Math.sin(x * 0.8 + seed) * Math.cos(y * 0.8 + seed * 0.7) * 0.5 + 0.5;
-        ctx.fillStyle = `hsl(${h + v * 20},${60 + v * 30}%,${20 + v * 40}%)`;
-        ctx.fillRect(x, y, 1, 1);
-    }
+    // 🔧 Pro-Fix: Use a pure CSS gradient instead of a hardware Canvas context!
+    const v = Math.sin(assetCounter * 137.5) * 0.5 + 0.5;
+    const color = `hsl(${h + v * 20},${60 + v * 30}%,${20 + v * 40}%)`;
+
+    const colorBox = document.createElement('div');
+    colorBox.style.width = '100%';
+    colorBox.style.height = '100%';
+    colorBox.style.backgroundColor = color;
+    colorBox.style.borderRadius = '2px';
 
     const tag = document.createElement('div');
     tag.className = 'tag';
     tag.textContent = category;
-    cell.append(cvs, tag);
+
+    cell.append(colorBox, tag);
     $('tex-grid').appendChild(cell);
     liveCells.set(id, cell);
 }
@@ -408,15 +408,50 @@ async function testLoop(runId) {
         cache.load(id, url).then(bmp => {
             const ms = performance.now() - t0;
             URL.revokeObjectURL(url);
+
             if (bmp && currentRunId === runId) {
                 recordDecode(ms);
                 addLog('load', `${id} [${cat}] ${texSize}² ${ms.toFixed(1)}ms`);
+            } else if (!bmp) {
+                // 🔧 CLEANUP: The cache refused the load (Panic Mode)
+                evictVisualCell(id);
+                registry.unregister(id);
             }
         }).catch(() => {
             URL.revokeObjectURL(url);
+            // 🔧 CLEANUP: Safari rejected the decode
+            evictVisualCell(id);
+            registry.unregister(id);
         });
 
-        await new Promise(r => setTimeout(r, 50));
+        let delay = 50;
+        const activeTier = parseInt(currentTierValue) || 2;
+
+        if (activeTier === 3) delay = 80;
+        else if (activeTier === 2) delay = 120;
+        else delay = 200;
+
+        const cStats = cache.stats();
+        const usedRatio = parseFloat(cStats.memoryMB) / parseFloat(cStats.maxMemoryMB);
+        const wm = TIER_WATERMARKS[currentTierValue] || TIER_WATERMARKS[2];
+
+        // 🔧 1. HARDWARE SAFETY BRAKE
+        // If we cross the high watermark, the manager might still be asleep (up to 2000ms).
+        // We MUST slam the brakes instantly so we don't hit the 100% hardware ceiling.
+        if (usedRatio >= wm.highWatermark) {
+            delay = 800; // Massive delay gives the manager time to wake up and evict!
+        }
+        // 🔧 2. ENGINE BACKPRESSURE
+        else if (manager && manager.stats().pressured) {
+            delay *= 2.5;
+        }
+
+        // 🔧 3. PROMISE QUEUE CIRCUIT BREAKER
+        if (cStats.pending > 15) {
+            delay = 1000;
+        }
+
+        await new Promise(r => setTimeout(r, delay));
     }
 }
 
@@ -439,6 +474,17 @@ function frame(time) {
             evictRate = evictsThisSec;
             evictsThisSec = 0;
             lastEvReset = time;
+
+            // 🔧 GHOST SWEEPER: Catch emergency internal evictions that bypassed the manager
+            if (cache && cache._items) {
+                for (const [id, cell] of liveCells.entries()) {
+                    // If it is gone from the GPU but still on the screen, clean it up!
+                    if (!cache._items.has(id) && !cell.classList.contains('evicting')) {
+                        evictVisualCell(id);
+                        registry.unregister(id);
+                    }
+                }
+            }
         }
 
         if (!cache || !manager || !registry) {
