@@ -530,14 +530,14 @@ function frame(time) {
 }
 
 // ══════════════════════════════════════════════════════════
-//  REPORT — enriched v1.0.0
+//  REPORT — enriched v1.0.5
 // ══════════════════════════════════════════════════════════
 function buildReport() {
     const stats = cache ? cache.stats() : {};
     const wm = TIER_WATERMARKS[currentTierValue] || TIER_WATERMARKS[2];
     return {
         generator: '@zakkster/lite-vram playbook diagnostic',
-        version: '1.0.0',
+        version: '1.0.5',
         deviceModel: "__________",
         osVersion: "__________",
         browserVersion: "__________",
