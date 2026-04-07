@@ -91,7 +91,7 @@ Click **Export Report** to generate a comprehensive JSON:
 ```json
 {
     "generator": "@zakkster/lite-vram diagnostic",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "sessionDurationMs": 45200,
     "device": { "gpu": "Apple A14 GPU", "tier": "MID", "ramGB": 4, ... },
     "vram": { "presetMaxMB": "96.00", "peakReachedMB": 82.4, ... },
