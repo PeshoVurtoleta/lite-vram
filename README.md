@@ -364,6 +364,7 @@ When submitting a report, please fill out the environmental hardware fields in t
   "network": "WiFi 5GHz | WiFi 2.4GHz | LTE | 5G",
   "notes": "Tab crashed cleanly at 192MB, no severe system stutter before the crash."
 }
+```
 
 **Your anonymous device report is the most valuable contribution you can make.** Every JSON adds a real data point to our device matrices. Every data point makes the presets safer. Every safer preset prevents a Safari crash for some studio shipping a game to millions of players.
 
@@ -378,7 +379,7 @@ We desperately need reports from:
 
 **Every report you send saves a studio from shipping a crash.**
 
-→ **[Read the full Dashboard README](./examples/vram-diagnostics-dashboard/README.md)** for report format, field mapping, and how we use the data.
+→ **[Read the full Dashboard README](https://github.com/PeshoVurtoleta/lite-vram/blob/main/vram-diagnostics-dashboard/README.md)** for report format, field mapping, and how we use the data.
 
 ---
 

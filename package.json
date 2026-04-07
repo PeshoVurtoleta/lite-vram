@@ -1,7 +1,7 @@
 {
   "name": "@zakkster/lite-vram",
   "author": "Zahary Shinikchiev <shinikchiev@yahoo.com>",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Enterprise-grade VRAM management for HTML5 games. Features hardware tier detection, priority-based hysteresis eviction, and safe scene streaming.",
   "type": "module",
   "sideEffects": false,
