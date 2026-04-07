@@ -401,27 +401,23 @@ async function testLoop(runId) {
         if (!isRunning || currentRunId !== runId) break;
 
         const url = URL.createObjectURL(blob);
-        registry.register(id, cat);
-        createVisualCell(id, cat);
 
         const t0 = performance.now();
+
+        // 🔧 CREATE DOM AFTER LOAD: Only render what actually hits VRAM
         cache.load(id, url).then(bmp => {
             const ms = performance.now() - t0;
             URL.revokeObjectURL(url);
 
             if (bmp && currentRunId === runId) {
+                registry.register(id, cat);
+                createVisualCell(id, cat);
+
                 recordDecode(ms);
                 addLog('load', `${id} [${cat}] ${texSize}² ${ms.toFixed(1)}ms`);
-            } else if (!bmp) {
-                // 🔧 CLEANUP: The cache refused the load (Panic Mode)
-                evictVisualCell(id);
-                registry.unregister(id);
             }
         }).catch(() => {
             URL.revokeObjectURL(url);
-            // 🔧 CLEANUP: Safari rejected the decode
-            evictVisualCell(id);
-            registry.unregister(id);
         });
 
         let delay = 50;
@@ -475,14 +471,17 @@ function frame(time) {
             evictsThisSec = 0;
             lastEvReset = time;
 
-            // 🔧 GHOST SWEEPER: Catch emergency internal evictions that bypassed the manager
-            if (cache && cache._items) {
+            // 🔧 THE GHOST SWEEPER: Clean up emergency internal evictions
+            // Access the underlying Map directly to prevent LRU poisoning!
+            if (cache && cache.cache instanceof Map) {
                 for (const [id, cell] of liveCells.entries()) {
-                    // If it is gone from the GPU but still on the screen, clean it up!
-                    if (!cache._items.has(id) && !cell.classList.contains('evicting')) {
+
+                    // Directly check the Map. No .get(), no undefined traps.
+                    if (!cache.cache.has(id) && !cell.classList.contains('evicting')) {
                         evictVisualCell(id);
-                        registry.unregister(id);
+                        if (registry) registry.unregister(id);
                     }
+
                 }
             }
         }
