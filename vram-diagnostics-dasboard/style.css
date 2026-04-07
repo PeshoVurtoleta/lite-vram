@@ -252,15 +252,18 @@ body::after {
    ═══════════════════════════════════════════════════ */
 .graph-wrap {
     position: relative;
-    flex: 1;
-    min-height: 180px;
+    flex: 1 1 140px;
+    min-height: 100px; /* Lowered from 180px so it absorbs the squish, not the metrics */
     background: var(--inset);
     border-radius: 6px;
     border: 1px solid var(--border);
-    overflow: hidden;
+    overflow: hidden; /* Prevent canvas leaking */
 }
 
+/* 🔧 4. Detach canvas from DOM flow to prevent infinite resize loops */
 .graph-wrap canvas {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     display: block;
@@ -410,7 +413,8 @@ body::after {
    ═══════════════════════════════════════════════════ */
 .metrics {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    /* Lowered from 120px to 105px so all 6 cards fit horizontally */
+    grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
     gap: 0.4rem;
     margin-top: 0.5rem;
 }
@@ -899,6 +903,10 @@ body::after {
 
 .copied-toast.show {
     opacity: 1;
+}
+
+.pnl-hdr, .g-legend, .metrics {
+    flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════
