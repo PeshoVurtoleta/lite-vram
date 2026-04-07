@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VRAM Playbook — Live Engine Diagnostics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap"
+          rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<div class="hdr">
+    <div class="brand">
+        <div class="brand-icon">VP</div>
+        <div>
+            <h1>VRAM Playbook</h1>
+            <span>Live Engine Diagnostics &nbsp;·&nbsp; v1.0.0</span>
+        </div>
+    </div>
+    <div class="hdr-ctrls">
+        <select class="sel" id="sel-tier">
+            <option value="safe">Safe (32 MB)</option>
+            <option value="1">Low (48 MB)</option>
+            <option value="2" selected>Mid (96 MB)</option>
+            <option value="3">High (192 MB)</option>
+            <option value="ultra">Ultra (256 MB)</option>
+        </select>
+        <select class="sel" id="sel-tex">
+            <option value="512">512² (~1 MB)</option>
+            <option value="1024" selected>1024² (~4 MB)</option>
+            <option value="2048">2048² (~16 MB)</option>
+        </select>
+        <div class="sep"></div>
+        <button class="btn primary" id="btn-run">&#9654; Start</button>
+        <button class="btn danger" id="btn-flush">Flush</button>
+        <div class="sep"></div>
+        <button class="btn green" id="btn-report">Export Report</button>
+    </div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+    <div class="pnl graph-panel">
+        <div class="pnl-hdr">
+            <span class="pnl-title">VRAM Allocation &amp; Eviction Telemetry</span>
+            <span class="pnl-badge" id="g-status">Standby</span>
+        </div>
+        <div class="graph-wrap">
+            <canvas id="graph"></canvas>
+        </div>
+        <div class="g-legend">
+            <div class="g-leg"><span class="g-sw g-sw--blue"></span>Allocated</div>
+            <div class="g-leg"><span class="g-sw g-sw--red"></span>VRAM Ceiling</div>
+            <div class="g-leg"><span class="g-sw g-sw--amber"></span>High Watermark</div>
+            <div class="g-leg"><span class="g-sw g-sw--green"></span>Asset Count</div>
+        </div>
+        <div class="metrics">
+            <div class="m-card"><span class="lbl">VRAM Used</span><span class="val c-blue" id="v-mem">0.00<span
+                    class="unit">MB</span></span>
+                <div class="sub" id="v-pct">0% of cap</div>
+            </div>
+            <div class="m-card"><span class="lbl">Peak VRAM</span><span class="val c-red" id="v-peak">0.00<span
+                    class="unit">MB</span></span>
+                <div class="sub">session max</div>
+            </div>
+            <div class="m-card"><span class="lbl">Assets</span><span class="val c-cyan" id="v-assets">0</span>
+                <div class="sub" id="v-pending">0 pending</div>
+            </div>
+            <div class="m-card"><span class="lbl">Evictions</span><span class="val c-amber" id="v-evict">0</span>
+                <div class="sub" id="v-evrate">0 /sec</div>
+            </div>
+            <div class="m-card"><span class="lbl">FPS</span><span class="val c-green" id="v-fps">60</span>
+                <div class="sub" id="v-ft">16.7ms</div>
+            </div>
+            <div class="m-card"><span class="lbl">Pressure</span><span class="val c-violet" id="v-pressure">—</span>
+                <div class="sub" id="v-mgr">idle</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="pnl tex-grid-area">
+        <div class="pnl-hdr">
+            <span class="pnl-title">Live VRAM Contents</span>
+            <span class="pnl-badge" id="g-texcount">0 textures</span>
+        </div>
+        <div class="tex-grid" id="tex-grid"></div>
+    </div>
+
+    <div class="side">
+        <div class="pnl">
+            <div class="pnl-hdr"><span class="pnl-title">Detected Device Tier</span></div>
+            <div class="tier-card">
+                <div class="tier-icon" id="tier-icon">—</div>
+                <div>
+                    <div class="tier-name" id="tier-name">Detecting...</div>
+                    <div class="tier-desc" id="tier-desc">Probing hardware</div>
+                </div>
+            </div>
+            <div class="tier-bar">
+                <div class="tier-fill" id="tier-fill"></div>
+            </div>
+        </div>
+
+        <!-- DECODE TIMING — Safari throttle detection -->
+        <div class="pnl">
+            <div class="pnl-hdr"><span class="pnl-title">Decode Timing</span><span
+                    class="pnl-badge">Throttle Detection</span></div>
+            <div class="decode-grid">
+                <span class="lbl">Baseline</span><span class="val" id="d-baseline">—</span>
+                <span class="lbl">Last decode</span><span class="val" id="d-last">—</span>
+                <span class="lbl">Multiplier</span><span class="val" id="d-mult">—</span>
+                <span class="lbl">Peak</span><span class="val" id="d-peak">—</span>
+                <div class="decode-bar-wrap">
+                    <div class="decode-bar" id="d-bar"></div>
+                </div>
+                <div class="decode-status decode-status--idle" id="d-status">Waiting for data...</div>
+            </div>
+        </div>
+
+        <div class="pnl">
+            <div class="pnl-hdr"><span class="pnl-title">Category Priority</span><span
+                    class="pnl-badge">Evict Order</span></div>
+            <div class="cat-legend">
+                <div class="cat-row"><span class="cat-dot cat-dot--temp"></span>TEMP — evicted first<span
+                        class="cat-count" id="cc-temp">0</span></div>
+                <div class="cat-row"><span class="cat-dot cat-dot--fx"></span>FX — particles, trails<span
+                        class="cat-count" id="cc-fx">0</span></div>
+                <div class="cat-row"><span class="cat-dot cat-dot--bg"></span>BG — backgrounds<span class="cat-count"
+                                                                                                    id="cc-bg">0</span>
+                </div>
+                <div class="cat-row"><span class="cat-dot cat-dot--char"></span>CHAR — characters<span class="cat-count"
+                                                                                                       id="cc-char">0</span>
+                </div>
+                <div class="cat-row"><span class="cat-dot cat-dot--ui"></span>UI — immune to eviction<span
+                        class="cat-count" id="cc-ui">0</span></div>
+            </div>
+        </div>
+
+        <div class="pnl log-area">
+            <div class="pnl-hdr"><span class="pnl-title">Pipeline</span><span class="pnl-badge" id="log-count">0</span>
+            </div>
+            <div class="log-list" id="log-list"></div>
+        </div>
+
+        <div class="pnl">
+            <div class="cta">
+                <h3>What you're seeing</h3>
+                <p>Every colored tile is a real texture in VRAM. Watch them appear, age, and get evicted by priority —
+                    TEMP dies first, UI survives everything. No other HTML5 engine does this.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ REPORT MODAL ═══ -->
+<div class="modal-bg" id="modal-bg">
+    <div class="modal">
+        <h2>Device &amp; VRAM Report</h2>
+        <p>Send this to <strong>shinikchiev&#64;yahoo.com</strong> — your anonymous hardware data helps us build better
+            presets for every device.</p>
+        <pre id="report-json"></pre>
+        <div class="modal-btns">
+            <button class="btn primary" id="btn-copy">Copy to Clipboard</button>
+            <button class="btn green" id="btn-download">Download JSON</button>
+            <button class="btn" id="btn-email">Open Email</button>
+            <button class="btn" id="btn-close-modal">Close</button>
+        </div>
+    </div>
+</div>
+<div class="copied-toast" id="toast">Copied to clipboard</div>
+
+<!-- ═══ ENGINE ═══ -->
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+<script type="importmap">
+{
+    "imports": {
+        "@zakkster/lite-sprite-cache": "https://cdn.jsdelivr.net/npm/@zakkster/lite-sprite-cache@1/SpriteCache.js"
+    }
+}
+
+</script>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
