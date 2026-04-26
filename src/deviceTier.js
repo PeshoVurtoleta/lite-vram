@@ -6,10 +6,18 @@
  *
  * ⚠️ BROWSER SUPPORT NOTES:
  * - `navigator.deviceMemory` is Chrome/Edge only (not Firefox, not Safari).
+ *   Chrome additionally clamps the value at 8GB for fingerprinting protection,
+ *   so an 8GB report can mean any actual RAM ≥ 8GB.
  * - iPadOS 13+ spoofs its User-Agent as "Macintosh" — this module uses
  *   touch + standalone heuristics to detect modern iPads.
  * - `WEBGL_debug_renderer_info` is deprecated in some contexts but still
  *   the most reliable GPU signal. Falls back gracefully if unavailable.
+ *
+ * ── v1.1.0 Fix ──────────────────────────────────────────
+ * Mac-spoofed iPads (iPadOS 13+) carry no `CPU OS X_X like Mac OS X`
+ * token, so iOS version detection returned 0 and the tier reason was
+ * "iOS ?".  v1.1 falls back to the Safari `Version/X` token, which
+ * Apple aligns with iOS major versions on iPad.
  */
 
 export const DeviceTier = {
@@ -30,22 +38,10 @@ const TIER_NAMES = {
  * @property {number} tier
  * @property {string} tierName
  * @property {Object} signals
- * @property {boolean} signals.isIOS
- * @property {boolean} signals.isIPad
- * @property {boolean} signals.isMobile
- * @property {number}  signals.iOSVersion
- * @property {number}  signals.memory
- * @property {boolean} signals.memoryReal
- * @property {number}  signals.cores
- * @property {string}  signals.gpu
- * @property {boolean} signals.gpuIsLow
- * @property {string}  signals.reason
  */
 
 /**
  * Detects the device's performance tier for VRAM budget selection.
- * Returns a full result object with raw signals and reasoning.
- *
  * @returns {TierResult}
  */
 export function detectDeviceTier() {
@@ -54,12 +50,10 @@ export function detectDeviceTier() {
     // ── Platform Detection ──────────────────────────────
     const isIOSClassic = /iPad|iPhone|iPod/.test(ua);
 
-    // iPadOS 13+ reports as "Macintosh" — detect via touch + standalone
     const isIPadOS13Plus = !isIOSClassic
         && /Macintosh/.test(ua)
         && navigator.maxTouchPoints > 1;
 
-    // Legacy iPads: "CPU OS 12_4 like Mac OS X" pattern
     const isIPadLegacy = !isIOSClassic
         && !isIPadOS13Plus
         && /CPU OS/.test(ua)
@@ -70,13 +64,18 @@ export function detectDeviceTier() {
     const isMobile = isIOS || /Mobi|Android/.test(ua);
 
     // ── iOS Version Detection ───────────────────────────
-    // Parses major version from "CPU iPhone OS 18_7 like Mac OS X"
-    // or "CPU OS 17_4 like Mac OS X" (iPad).
-    // Returns 0 if not iOS or unparseable.
     let iOSVersion = 0;
     if (isIOS) {
         const match = ua.match(/(?:CPU (?:iPhone )?OS |OS )(\d+)[_\d]* like Mac OS X/);
         if (match) iOSVersion = parseInt(match[1], 10);
+
+        // v1.1 fix: Mac-spoofed iPads carry no iOS token. Fall back to the
+        // Safari Version/X.X.X. Apple aligns Safari major version with iOS
+        // major version on iPad (Safari 15 ↔ iPadOS 15, Safari 17 ↔ iPadOS 17).
+        if (iOSVersion === 0 && isIPadOS13Plus) {
+            const safariMatch = ua.match(/Version\/(\d+)/);
+            if (safariMatch) iOSVersion = parseInt(safariMatch[1], 10);
+        }
     }
 
     // ── RAM Detection ───────────────────────────────────
@@ -115,26 +114,21 @@ export function detectDeviceTier() {
         tier = DeviceTier.LOW;
         reason = `iOS ${iOSVersion || '?'} device (likely ≤3GB RAM)`;
     }
-    // Rule 1b: iOS with actual RAM reported (future-proof — Chrome on iOS, or API change)
     else if (isIOS && memoryReal && memory <= 3) {
         tier = DeviceTier.LOW;
         reason = `iOS device with confirmed ≤3GB RAM (${memory}GB)`;
     }
-    // Rule 2: Budget Android with ≤2GB RAM — Chrome reports via deviceMemory
-    // (On Firefox/Safari where deviceMemory is unavailable, falls to rule 5 at 4GB estimate)
+    // Rule 2: Budget Android with ≤2GB RAM
     else if (isMobile && !isIOS && memoryReal && memory <= 2) {
         tier = DeviceTier.LOW;
         reason = `Budget Android with ≤2GB RAM (${memory}GB)`;
     }
-    // Rule 3: Mobile device with known low-end GPU — scoped to mobile only.
-    // Desktop browsers with old integrated GPUs (Intel HD 4000) can still allocate
-    // 500MB+ from system RAM — forcing them to LOW (48MB) is unnecessarily destructive.
+    // Rule 3: Mobile device with known low-end GPU
     else if (isMobile && gpuIsLow) {
         tier = DeviceTier.LOW;
         reason = `Low-end mobile GPU detected: ${gpu}`;
     }
     // Rule 4: Desktop with low-end GPU — demote to MID, not LOW.
-    // Desktop Chrome/Firefox memory limits are far more permissive than iOS Safari.
     else if (!isMobile && gpuIsLow) {
         tier = DeviceTier.MID;
         reason = `Desktop with low-end integrated GPU: ${gpu}`;
@@ -144,8 +138,7 @@ export function detectDeviceTier() {
         tier = DeviceTier.MID;
         reason = `${isMobile ? 'Mobile' : 'Desktop'} with ≤4GB RAM (${memory}GB${memoryReal ? '' : ' estimated'})`;
     }
-    // Rule 6: Low core count on desktop WITH modest RAM — avoids misclassifying
-    // M1 Macs in low-power mode or dual-core i3 desktops with 16GB
+    // Rule 6: Low core count on desktop WITH modest RAM
     else if (!isMobile && cores <= 2 && memory <= 8) {
         tier = DeviceTier.MID;
         reason = `Desktop with only ${cores} cores and ≤8GB RAM (${memory}GB)`;
@@ -197,26 +190,11 @@ function isLowEndGPU(gpu) {
 
     const lower = gpu.toLowerCase();
 
-    // Intel integrated (pre-Iris Plus):
-    //   4-digit: HD 2000, 3000, 4000, 4200–4600, 5000–5300
-    //   3-digit Skylake: HD 510, 515, 520, 530 (low-end integrated)
-    //   3-digit Kaby Lake: HD 610, 615, 620 (low-end integrated)
-    //   Excludes: HD 540+ (Iris), 630+ (Iris Plus) — these are capable desktop GPUs
     if (/intel.*(hd\s*(graphics\s*)?(2000|3000|4000|4[0-6]00|5[0-3]00|5[1-3]\d|6[0-2]\d))/i.test(lower)) return true;
-
-    // Mali low-end
     if (/mali[\s-]*(t6|t7|g31|g51)/i.test(lower)) return true;
-
-    // Adreno low-end (3xx, 4xx, 5xx below 540)
     if (/adreno.*([345][0-3]\d)/i.test(lower)) return true;
-
-    // Apple A7–A9 (some WebGL contexts leak the chip name)
     if (/apple.*a[7-9]\b/i.test(lower)) return true;
-
-    // PowerVR (older mobile)
     if (/powervr/i.test(lower)) return true;
-
-    // Software renderers
     if (/swiftshader|llvmpipe/i.test(lower)) return true;
 
     return false;

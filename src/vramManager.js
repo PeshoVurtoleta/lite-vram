@@ -5,11 +5,25 @@
  *   TEMP → FX → BG → CHAR → (UI is immune)
  *
  * Features:
- * - High/Low watermark hysteresis
+ * - High/Low watermark hysteresis with explicit state-transition tracking
  * - Scaled eviction intensity (more assets evicted when further above threshold)
- * - Panic mode at 95%: bypasses category logic, evicts everything non-UI
+ * - Panic mode at panicWatermark: bypasses category logic, evicts everything non-UI
  * - Pause/resume for scene transitions
  * - onEvict callback for analytics
+ *
+ * ── v1.1.0 Hysteresis Fix ────────────────────────────────────────────
+ * In v1.0.x, when a fast device crossed both `highWatermark` and
+ * `panicWatermark` between two ticks, the manager fired both `onPressure`
+ * and `onPanic` simultaneously, making `pressure.events == pressure.panics`
+ * in dashboard reports. This obscured the diagnostic signal.
+ *
+ * v1.1 separates the two callbacks at their semantic source:
+ *   - `onPressure` fires only on the OK → HIGH-PRESSURE transition.
+ *   - `onPanic`    fires every tick we are above panicWatermark, regardless
+ *                  of whether we passed through HIGH-PRESSURE first.
+ *
+ * If `onPressure` count < `onPanic` count, the dashboard knows the device
+ * overshot the high-watermark window and the gap should be widened.
  */
 
 import { AssetCategory, EVICTION_ORDER } from './categoryRegistry.js';
@@ -18,22 +32,22 @@ export class VramManager {
     /**
      * @param {import('@zakkster/lite-sprite-cache').SpriteCache} cache
      * @param {Object} [options]
-     * @param {number} [options.checkIntervalMs=2000]
-     * @param {number} [options.highWatermark=0.90]
-     * @param {number} [options.lowWatermark=0.75]
-     * @param {number} [options.panicWatermark=0.95]
+     * @param {number} [options.checkIntervalMs=1000]
+     * @param {number} [options.highWatermark=0.85]   - v1.1 default (was 0.90).
+     * @param {number} [options.lowWatermark=0.70]    - v1.1 default (was 0.75).
+     * @param {number} [options.panicWatermark=0.96]  - v1.1 default (was 0.95).
      * @param {number} [options.aggressiveUnloadAge=5000]
-     * @param {import('./categoryRegistry.js').CategoryRegistry} options.registry - Required. Category-aware eviction depends on this.
-     * @param {function(string, string=): void} [options.onEvict=null] - Called with (id, category?) on each eviction.
+     * @param {import('./categoryRegistry.js').CategoryRegistry} options.registry - Required.
+     * @param {function(string, string=): void} [options.onEvict=null]
      * @param {function(number): void} [options.onPressure=null]
      * @param {function(number): void} [options.onRelief=null]
-     * @param {function(number): void} [options.onPanic=null] - Called when usage exceeds panicWatermark.
+     * @param {function(number): void} [options.onPanic=null]
      */
     constructor(cache, {
-        checkIntervalMs     = 2000,
-        highWatermark       = 0.90,
-        lowWatermark        = 0.75,
-        panicWatermark      = 0.95,
+        checkIntervalMs     = 1000,
+        highWatermark       = 0.85,
+        lowWatermark        = 0.70,
+        panicWatermark      = 0.96,
         aggressiveUnloadAge = 5000,
         registry            = null,
         onEvict             = null,
@@ -41,6 +55,24 @@ export class VramManager {
         onRelief            = null,
         onPanic             = null
     } = {}) {
+        if (!registry) {
+            throw new Error(
+                'VramManager requires a CategoryRegistry instance. ' +
+                'Without it, eviction cannot prioritize by category and will crash under pressure. ' +
+                'Pass { registry } in the options object.'
+            );
+        }
+
+        // ── Watermark sanity check (v1.1) ────────────────────────
+        // Catches misconfigurations like high=0.95, panic=0.90 that would
+        // make the system permanently panic and never relieve.
+        if (!(lowWatermark < highWatermark && highWatermark < panicWatermark)) {
+            throw new Error(
+                `VramManager: watermarks must satisfy low < high < panic. ` +
+                `Got low=${lowWatermark}, high=${highWatermark}, panic=${panicWatermark}.`
+            );
+        }
+
         this.cache              = cache;
         this.checkIntervalMs    = checkIntervalMs;
         this.highWatermark      = highWatermark;
@@ -51,14 +83,6 @@ export class VramManager {
         this.onPressure         = onPressure;
         this.onRelief           = onRelief;
         this.onPanic            = onPanic;
-
-        if (!registry) {
-            throw new Error(
-                'VramManager requires a CategoryRegistry instance. ' +
-                'Without it, eviction cannot prioritize by category and will crash under pressure. ' +
-                'Pass { registry } in the options object.'
-            );
-        }
         this.registry           = registry;
 
         /** @private */ this._timer = null;
@@ -109,19 +133,21 @@ export class VramManager {
         const usage = this._getUsageRatio();
 
         // ── Panic Mode ───────────────────────────────────
-        // Above 95%: bypass category logic, aggressively evict everything non-UI.
-        // This prevents Safari tab crashes.
+        // Above panicWatermark: bypass category logic, aggressively evict
+        // everything non-UI to prevent Safari tab crashes.
+        //
+        // v1.1: do NOT fire `onPressure` here. Pressure events are reserved
+        // for graceful OK→HIGH transitions. If the system jumped straight to
+        // panic, the dashboard sees onPanic without a preceding onPressure
+        // and can correctly diagnose watermark overshoot.
         if (usage > this.panicWatermark) {
-            if (!this._pressured) {
-                this._pressured = true;
-                if (this.onPressure) this.onPressure(usage);
-            }
+            this._pressured = true;
             if (this.onPanic) this.onPanic(usage);
             this._panicEvict();
             return;
         }
 
-        // ── Hysteresis ───────────────────────────────────
+        // ── Hysteresis: enter pressured state via the high watermark ─────
         if (!this._pressured) {
             if (usage > this.highWatermark) {
                 this._pressured = true;
@@ -131,23 +157,20 @@ export class VramManager {
             }
         }
 
+        // ── Relief: exit pressured state via the low watermark ───────────
         if (usage <= this.lowWatermark) {
             this._pressured = false;
             if (this.onRelief) this.onRelief(usage);
             return;
         }
 
-        // ── Scaled Eviction ──────────────────────────────
-        // The further above the high watermark, the more assets we evict per tick.
-        // At 91%: 1 eviction. At 94%: ~4 evictions. Mimics Unreal's panic ramp.
+        // ── Scaled Eviction ──────────────────────────────────────────────
+        // The further above the high watermark, the more assets we evict
+        // per tick. At 1pp over: 1 eviction. At 4pp over: ~4 evictions.
         const overshoot = usage - this.highWatermark;
         const evictionCount = Math.max(1, Math.floor(overshoot * 40));
 
-        if (this.registry) {
-            this._evictByPriority(evictionCount);
-        } else {
-            this.cache.unloadUnused(this.aggressiveUnloadAge);
-        }
+        this._evictByPriority(evictionCount);
     }
 
     /**
@@ -186,19 +209,17 @@ export class VramManager {
      * @private
      */
     _panicEvict() {
-        if (this.registry) {
-            const evictable = this.registry.getIdsByPriority();
-            for (const id of evictable) {
-                if (this._getUsageRatio() <= this.highWatermark) break;
-                if (this.cache.get(id) !== undefined) {
-                    const category = this.registry.getCategory(id);
-                    this.cache.dispose(id);
-                    this.registry.unregister(id);
-                    if (this.onEvict) this.onEvict(id, category);
-                }
+        const evictable = this.registry.getIdsByPriority();
+        for (const id of evictable) {
+            if (this._getUsageRatio() <= this.highWatermark) break;
+            if (this.cache.get(id) !== undefined) {
+                const category = this.registry.getCategory(id);
+                this.cache.dispose(id);
+                this.registry.unregister(id);
+                if (this.onEvict) this.onEvict(id, category);
             }
         }
-        // Also run aggressive age-based eviction as a last resort
+        // Last-resort age-based eviction
         this.cache.unloadUnused(this.aggressiveUnloadAge);
     }
 
@@ -220,15 +241,15 @@ export class VramManager {
     stats() {
         const usage = this._getUsageRatio();
         return {
-            pressured:     this._pressured,
-            paused:        this._paused,
-            usageRatio:    usage,
-            usagePercent:  (usage * 100).toFixed(1),
-            highWatermark: this.highWatermark,
-            lowWatermark:  this.lowWatermark,
+            pressured:      this._pressured,
+            paused:         this._paused,
+            usageRatio:     usage,
+            usagePercent:   (usage * 100).toFixed(1),
+            highWatermark:  this.highWatermark,
+            lowWatermark:   this.lowWatermark,
             panicWatermark: this.panicWatermark,
-            registrySize:  this.registry ? this.registry.size : 0,
-            running:       this._timer !== null
+            registrySize:   this.registry ? this.registry.size : 0,
+            running:        this._timer !== null
         };
     }
 
